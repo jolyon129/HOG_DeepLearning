@@ -26,8 +26,8 @@ class HOG:
         self.gray_img = gray_arr
 
     def process_image(self):
-        Gx, Gy, Magnitude = self.gradient_operator()
-        gradient_angle = self.gradient_angle(Gx, Gy, Magnitude)
+        Gx, Gy, Magnitude = self.__gradient_operator()
+        gradient_angle = self.__gradient_angle(Gx, Gy, Magnitude)
 
     def caculate_HOG(self):
         pass
