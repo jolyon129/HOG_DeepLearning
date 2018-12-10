@@ -4,6 +4,8 @@ import os
 import glob
 import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
+import imageio
+import math
 
 
 class HOG:
@@ -11,6 +13,9 @@ class HOG:
         self.img = None
         self.gray_img = None
         self.file_name = None
+        self.cells = None
+        self.blocks = None
+        self.descriptor = None
         pass
 
     def read_image(self, img_path):
@@ -26,11 +31,126 @@ class HOG:
         self.gray_img = gray_arr
 
     def process_image(self):
-        Gx, Gy, Magnitude = self.__gradient_operator()
-        gradient_angle = self.__gradient_angle(Gx, Gy, Magnitude)
+        gx, gy, magnitude = self.__gradient_operator()
+        gradient_angle = self.__gradient_angle(gx, gy, magnitude)
+        self.gradient_angle = gradient_angle
+        self.magnitude = magnitude
+        self.caculate_HOG(gradient_angle, magnitude)
+        self.normalize_over_blocks()
+        self.generate_descriptor()
 
-    def caculate_HOG(self):
-        pass
+    def save_files(self, path1, path2):
+        file = open(os.path.join(path1, self.file_name[:-4]) + '.text', 'w')
+        file.write(str(self.descriptor))
+        file.close()
+
+        np.save(os.path.join(path1, self.file_name[:-4]), self.descriptor)
+
+        imageio.imwrite(os.path.join(path2, self.file_name), self.gray_img)
+
+    def generate_descriptor(self):
+        '''
+        Concatenate vectors from all blocks to form the final descriptor
+        :return: The final descriptor. The dimension of descriptor is 7524
+        '''
+        blocks = self.blocks
+        descriptor = []
+        for i in range(len(blocks)):
+            for j in range(len(blocks[0])):
+                descriptor += blocks[i][j]
+        self.descriptor = descriptor
+        return self.descriptor
+
+    def caculate_HOG(self, gradient_angle, magnitude):
+        height, width = gradient_angle.shape[0], gradient_angle.shape[1]
+        cell_size = 8
+        # The 2-d array of all cells, each cell is 8*8 pixels
+        # each element cells[i][j] is the histogram of cells[i][j], which is a list
+        self.cells = [[None] * int(width / cell_size) for i in range(int(height / cell_size))]
+        for i in range(len(self.cells)):
+            for j in range(len(self.cells[0])):
+                self.cells[i][j] = self.hist_per_cell(gradient_angle, magnitude, [i, j], cell_size)
+        return self.cells
+
+    def normalize_over_blocks(self):
+        '''
+        normalize the vectors over blocks
+        :return: return the matrix of blocks, each element of the matrix, blocks, contains the HOG feature.
+        Each feature is a 36*1 vector
+        '''
+        # each block is 2*2 cells, which is 16*16 pixels
+        blocks = [[None] * 11 for i in range(19)]
+        # block_size = 2
+        for i in range(len(blocks)):
+            for j in range(len(blocks[0])):
+                # Find the corresponding cells which belongs to the current block
+                # For a block blocks[i][j], it occupies the cells whose row and column number satisfy the following,
+                # cell[m][n] where i<=m<i+2, j<=n<j+2
+                row_range = (i, i + 2)
+                col_range = (j, j + 2)
+                new_vec = []
+                for m in range(*row_range):
+                    for n in range(*col_range):
+                        # Concatenate histograms from the 4 cells  to form a long vector
+                        new_vec += self.cells[m][n]
+                # Calculate L2 norm
+                temp = 0
+                for x in new_vec:
+                    temp += x * x
+                temp = math.sqrt(temp)
+                # Normalize vector
+                if temp != 0:
+                    for v in range(len(new_vec)):
+                        new_vec[v] = new_vec[v] / temp
+                blocks[i][j] = new_vec
+        self.blocks = blocks
+        return self.blocks
+
+    def hist_per_cell(self, gradient_angle, magnitude, cell_index, cell_size):
+        '''
+        Caculate the local gradient orientation histograms for cells
+
+        :param gradient_angle:  gradient_angle
+        :param magnitude: magnitude
+        :param cell_index: the index of current cell in the cells.
+        If the index of the current cell is [i,j], then this cell should contains
+        the pixels where the index of the row is [i*8,(i+1)*8) and the index of the column is [i*8,(i+1)*8) in
+        the original image matrix
+
+        :param cell_size: the size of a cell, 8*8
+        :return:
+        '''
+        # create a new histogram where the length of bin is 9
+        hist_per_cell = [0] * 9
+        # the range of the index of the current cell
+        # If the index of cell is [i,j], then this cell should contains
+        # the pixels where the index of the row is [i*8,(i+1)*8) and the index of the column is [i*8,(i+1)*8)
+        row_range = (cell_index[0] * cell_size, (cell_index[0] + 1) * cell_size)
+        col_range = (cell_index[1] * cell_size, (cell_index[1] + 1) * cell_size)
+        for i in range(*row_range):
+            for j in range(*col_range):
+                angle = gradient_angle[i][j]
+                deg = np.rad2deg(angle)
+                if 170 <= deg < 350:
+                    # If the gradient angle is in the range [170, 350) degrees,
+                    # simply subtract by 180 first.
+                    deg -= 180
+                # the array of the 9 bin centers
+                bins = [0, 20, 40, 60, 80, 100, 120, 140, 160]
+                k = 0
+                # Find the closest bins
+                while not (k == 8 or bins[k] <= deg < bins[k + 1]):
+                    k += 1
+                # If the degree is between two bins, split the weight into the two
+                # closest bins based on their distance to bin center
+                if 0 < k < 8:
+                    total_vote = 20
+                    hist_per_cell[k] = (1 - ((deg - bins[k]) / total_vote)) * magnitude[i][j]
+                    hist_per_cell[k + 1] = (1 - ((bins[k + 1] - deg) / total_vote)) * magnitude[i][j]
+                # If the degree is within the first bin or last bin
+                else:
+                    hist_per_cell[k] = magnitude[i][j]
+        return hist_per_cell
 
     def __gradient_operator(self):
         '''
@@ -40,12 +160,12 @@ class HOG:
         '''
         img = self.gray_img
         # img.shape store the number of rows and columns
-        width = img.shape[0]
-        height = img.shape[1]
+        height = img.shape[0]
+        width = img.shape[1]
         # Initiate three Img Arrays of zero, Gx, Gy, Magnitude
-        gx = np.zeros([width, height], dtype=np.uint8)
-        gy = np.zeros([width, height], dtype=np.uint8)
-        magnitude_arr = np.zeros([width, height], dtype=np.uint8)
+        gx = np.zeros([height, width])
+        gy = np.zeros([height, width])
+        magnitude_arr = np.zeros([height, width])
         prewitt_mask = {
             'Gx': ([-1, 0, 1],
                    [-1, 0, 1],
@@ -56,10 +176,10 @@ class HOG:
         }
         # When iterate the pixels, track the maximum and minimum of Gx and Gy
         gx_min, gy_min, gx_max, gy_max = sys.maxsize, sys.maxsize, 0, 0
-        for row in range(width):
-            for col in range(height):
+        for row in range(height):
+            for col in range(width):
                 # if the current pixel is not out of boundary
-                if 1 <= row < width - 1 and 1 <= col < height - 1:
+                if 1 <= row < height - 1 and 1 <= col < width - 1:
                     sum_gx, sum_gy, new_i, new_j = 0, 0, 0, 0
                     # Convolution
                     for i in range(3):
@@ -70,29 +190,24 @@ class HOG:
                             sum_gx += img[new_i][new_j] * prewitt_mask['Gx'][i][j]
                             sum_gy += img[new_i][new_j] * prewitt_mask['Gy'][i][j]
                     # absolute the value
-                    gx[row][col] = abs(sum_gx)
-                    gy[row][col] = abs(sum_gy)
-                    #  track the the maximum and minimum of Gx and Gy, which are used in normalization
-                    if gx[row][col] > gx_max:
-                        gx_max = gx[row][col]
-                    if gx[row][col] < gx_min:
-                        gx_min = gx[row][col]
-                    if gy[row][col] > gy_max:
-                        gy_max = gy[row][col]
-                    if gy[row][col] < gy_min:
-                        gy_min = gy[row][col]
+                    gx[row][col] = sum_gx
+                    gy[row][col] = sum_gy
+                    # #  track the the maximum and minimum of Gx and Gy, which are used in normalization
+                    # if gx[row][col] > gx_max:
+                    #     gx_max = gx[row][col]
+                    # if gx[row][col] < gx_min:
+                    #     gx_min = gx[row][col]
+                    # if gy[row][col] > gy_max:
+                    #     gy_max = gy[row][col]
+                    # if gy[row][col] < gy_min:
+                    #     gy_min = gy[row][col]
 
         # Track the maximum and minimum of magnitude
         mag_max, mag_min = 0, sys.maxsize
-        # normalize Gx and Gy
-        # and generate magnitude array
+        # generate magnitude array
         for i in range(img.shape[0]):
             for j in range(img.shape[1]):
-                # normalize the gradient.
-                # Using the formula from wiki.
-                # https://en.wikipedia.org/wiki/Normalization_(image_processing)
-                gx[i][j] = (gx[i][j] - gx_min) * 255 / (gx_max - gx_min)
-                gy[i][j] = (gy[i][j] - gy_min) * 255 / (gy_max - gy_min)
+
                 magnitude_arr[i][j] = np.sqrt(np.power(gx[i][j], 2) + np.power(gy[i][j], 2))
                 # Tracking the minimum and maximum of magnitude value
                 if magnitude_arr[i][j] > mag_max:
@@ -105,45 +220,56 @@ class HOG:
             for j in range(magnitude_arr.shape[1]):
                 # Using the formula from wiki.
                 # https://en.wikipedia.org/wiki/Normalization_(image_processing)
-                magnitude_arr[i][j] = (magnitude_arr[i][j] - mag_min) * 255 / (mag_max - mag_min)
+                # Round off the values into integer
+                magnitude_arr[i][j] = round((magnitude_arr[i][j] - mag_min) * 255 / (mag_max - mag_min))
 
         return gx, gy, magnitude_arr
 
     def __gradient_angle(self, gx, gy, magnitude):
-        '''
+        hist_per_cell = '''
         Caculate the array of gradient angle
         :param gx:
         :param gy:
         :param magnitude:
-        :return: an array of gradient angle.
+        :return: an array of gradient angle. Each angle is belong to [0, 2*pi]
         '''
         # magnitude.shape store the number of rows and columns
-        width = magnitude.shape[0]
-        height = magnitude.shape[1]
+        height = magnitude.shape[0]
+        width = magnitude.shape[1]
         # a new array of zero
-        gradient_angle = np.zeros([width, height], dtype=np.float)
+        gradient_angle = np.zeros([height, width], dtype=np.float)
         pi = np.pi
         # Each sector occupies two section, where a section is pi/8
         sec = pi / 8
-        for i in range(width):
-            for j in range(height):
+        for i in range(height):
+            for j in range(width):
                 #  if gx=0 and gy!=0, angle = pi/2
                 if gx[i][j] == 0 and gy[i][j] != 0:
                     angle = pi / 2
                 elif gx[i][j] == 0 and gy[i][j] == 0:
-                    gradient_angle[i][j] = 0
+                    angle = 0
                 else:
                     angle = np.arctan(gy[i][j] / gx[i][j])
-                    if angle < 0:
-                        angle = angle + 2 * pi
-                    gradient_angle[i][j] = angle
+                if angle < 0:
+                    angle = angle + 2 * pi
+                gradient_angle[i][j] = angle
         return gradient_angle
 
 
 if __name__ == '__main__':
     positive_trainsets_path_arr = glob.glob('Human/Train_Positive/*.bmp')
     negative_trainsets_path_arr = glob.glob('Human/Train_Negative/*.bmp')
-    hog = HOG()
-    hog.read_image('Human/Train_Positive/crop001030c.bmp')
-    hog.process_image()
-    plt.show()
+    for image_path in positive_trainsets_path_arr:
+        hog = HOG()
+        hog.read_image(image_path)
+        hog.process_image()
+        hog.save_files('stores/hog_descriptor/positive', 'stores/grayscale_imgs/positive')
+    for image_path in negative_trainsets_path_arr:
+        hog = HOG()
+        hog.read_image(image_path)
+        hog.process_image()
+        hog.save_files('stores/hog_descriptor/negative', 'stores/grayscale_imgs/negative')
+    # hog.read_image('Human/Train_Negative/00000118a_cut.bmp')
+    # hog.process_image()
+    # hog.save_files('stores/hog_descriptor/negative', 'stores/grayscale_imgs/negative')
+    # plt.show()

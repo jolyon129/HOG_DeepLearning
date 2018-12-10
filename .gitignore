@@ -52,3 +52,8 @@ fabric.properties
 
 # Editor-based Rest Client
 .idea/httpRequests
+
+stores/hog_descriptor/positive/*
+stores/hog_descriptor/negative/*
+stores/grayscale_imgs/positive/*
+stores/grayscale_imgs/negative/*
