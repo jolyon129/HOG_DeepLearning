@@ -1,0 +1,41 @@
+The neural network is using the training results from 1212_203641
+File Name: crop001047b.npy
+Actual Label: 1  Estimated Output: 0.000227414260101637
+Classification: Not Human
+
+File Name: crop001045b.npy
+Actual Label: 1  Estimated Output: 0.9999997192721279
+Classification: Human
+
+File Name: crop_000010b.npy
+Actual Label: 1  Estimated Output: 1.0
+Classification: Human
+
+File Name: crop001028a.npy
+Actual Label: 1  Estimated Output: 6.9743270374193915e-28
+Classification: Not Human
+
+File Name: crop001008b.npy
+Actual Label: 1  Estimated Output: 0.9999999950907963
+Classification: Human
+
+File Name: 00000093a_cut.npy
+Actual Label: 0  Estimated Output: 6.112470537904309e-09
+Classification: Not Human
+
+File Name: 00000053a_cut.npy
+Actual Label: 0  Estimated Output: 9.654440709184563e-40
+Classification: Not Human
+
+File Name: 00000062a_cut.npy
+Actual Label: 0  Estimated Output: 0.4825869114249715
+Classification: Not Human
+
+File Name: no_person__no_bike_213_cut.npy
+Actual Label: 0  Estimated Output: 0.9999999997375364
+Classification: Human
+
+File Name: no_person__no_bike_247_cut.npy
+Actual Label: 0  Estimated Output: 6.347848646442428e-54
+Classification: Not Human
+
